@@ -56,8 +56,6 @@ class Signal(data_source.DataManager):
         return df
 
 
-
-
 class DataTool():
 
     def __init__(self,paramVersion,remark):
@@ -78,7 +76,10 @@ class DataTool():
         self.dictDf = {}
         self.begin_time = 0
         self.end_time = 0
-        print('DataTool __init__() is called , symbols ',self.paramVersion,self.remark,self.symbols)
+        print(f'DataTool.__init__() is called')
+        print(f'parameter version:【{self.paramVersion}】')
+        print(f'remark:【{self.remark}】')
+        print('symbols:',self.symbols)
     def get_data(self, startTime, endTime):
         '''
         取原始数据并合成K线
@@ -265,6 +266,23 @@ class SignalCalculator(Signal):
             print(f'cci{str(cci_parameter)} done')
         return pd.DataFrame(cci_res)
     
+    def cal_sig_csi(self,data_raw:pd.DataFrame,setting:dict):
+        '''
+        传入单个symbol的行情数据，参数设置，返回列数为1的DataFrame
+        :data_raw :原始行情数据
+        :setting :计算指标的参数设置
+        '''
+        data = data_raw.copy(deep=True)
+        csi_res = {}
+        csi_param = setting['csi_param']
+        for csi_parameter in csi_param[:]:
+            tmp1 = ta.ADXR(data['high'], data['low'], data['close'], timeperiod = csi_parameter) ###参数不一定是14
+            tmp2 = ta.ATR(data['high'], data['low'], data['close'], timeperiod = csi_parameter)
+            csi_res['csi' + str(csi_parameter)] = tmp1*tmp2
+            print(f'csi{str(csi_parameter)} done')
+        return pd.DataFrame(csi_res)
+    
+    
     def ER(self,lst:list):
         '''
         :lst :数据列表
@@ -299,6 +317,10 @@ class SignalCalculator(Signal):
             if setting['indicator_name'] == 'cci':
                 res = self.cal_sig_cci(data,setting)
                 print(f'Calculate 【{symbol} cci】 complete')
+            
+            if setting['indicator_name'] == 'csi':
+                res = self.cal_sig_csi(data,setting)
+                print(f'Calculate 【{symbol} csi】 complete')            
                 
             if setting['indicator_name'] == 'er':
                 res = self.cal_sig_er(data,setting)
@@ -326,6 +348,16 @@ class SignalCalculator(Signal):
             df['avg_cci'+str(cci_parameter)] = df_cci.mean(axis=1)
             print(f'avg_cci{str(cci_parameter)} done')
         return df.iloc[:,-len(cci_param):].dropna(how='all',axis=0)
+    
+    def cal_avg_csi(self):
+        df = self.basic_data.copy(deep=True)
+        setting = self.setting
+        csi_param = setting['csi_param']
+        for csi_parameter in csi_param[:]:
+            df_csi = df.loc[:, pd.IndexSlice[:, "csi"+str(csi_parameter)]] ###取二级列索引
+            df['avg_csi'+str(csi_parameter)] = df_csi.mean(axis=1)
+            print(f'avg_csi{str(csi_parameter)} done')
+        return df.iloc[:,-len(csi_param):].dropna(how='all',axis=0)
     
     def cal_avg_er(self):
         df = self.basic_data.copy(deep=True)
@@ -372,7 +404,7 @@ class SignalCalculator(Signal):
     
 class Updater(DataTool,SignalCalculator):
     
-    def __init__(self,DataToolparamVersion = '_v1',DataToolremark = '_DataToolUpdaterEUL',dictDf:dict=None,instanceId=0):
+    def __init__(self,DataToolparamVersion = '_v1',DataToolremark = '_origin2',dictDf:dict=None,instanceId=0):
 #    def __init__(self,paramVersion,remark ,dictDf:dict=None,instanceId=0):
         '''
         :DataToolparamVersion :父类DataTool的初始化参数，用于确定DataTool获取行情信息的json格式参数
@@ -395,9 +427,11 @@ class Updater(DataTool,SignalCalculator):
         print('*****************开始获取行情数据*****************')
         symbolsData = self.get_update_data(factor) #传入factor名称会自动获取计算对应指标所需行情数据,
         print('symbolsData get!')
+        print('*****************行情数据获取完毕*****************')
         if save == True:
             self.save_symbols_data() #保存行情数据到本地
-        print('*****************行情数据获取并保存完毕*****************')
+            print('*****************行情数据保存完毕*****************')
+        
         calculator = SignalCalculator(symbolsData) #实例化SignalCalculator，传入的参数是字典形式{'5min':df}
         calculator.set_param(SignalCalculatorparamVersion,SignalCalculatoremark) #传入的参数版本和指标备注会传给SignalCalculator实例，自动调用对应指标计算函数
         print('*****************开始计算因子数据*****************')
@@ -413,6 +447,10 @@ class Updater(DataTool,SignalCalculator):
             calculator.prepare_data()
             result = calculator.cal_avg_cci()        
         
+        if factor == 'csi':
+            calculator.prepare_data()
+            result = calculator.cal_avg_csi()
+        
         if factor == 'absorptionRatio':
             #ar的计算方式和其他指标不一样,调用的接口不是cal_avg_xxx() 
             result = calculator.cal_total_ar()
@@ -425,9 +463,10 @@ class Updater(DataTool,SignalCalculator):
 #        print('毫秒格式上次更新数据最后日期',last_ind)
 #        print('上次更新数据最后日期',stadardTime)
         result = result.loc[stadardTime:]
+        print('*****************因子数据计算完毕*****************')
         if save == True:
             self.save_signal_data(result,'5mn',SignalCalculatorparamVersion,SignalCalculatoremark)
-        print('*****************因子数据计算并保存完毕*****************')
+            print('*****************因子数据保存完毕*****************')
         if upload == True:
             print('*****************开始上传因子到数据库*****************')
             uploadData = result.copy(deep=True)
